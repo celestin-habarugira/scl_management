@@ -1,0 +1,12 @@
+const express = require('express');
+const router = express.Router();
+const { getAll, create, update, remove, getStudentStats } = require('../controllers/performanceController');
+const { protect } = require('../middleware/auth');
+
+router.get('/', protect, getAll);
+router.post('/', protect, create);
+router.put('/:id', protect, update);
+router.delete('/:id', protect, remove);
+router.get('/student/:studentId', protect, getStudentStats);
+
+module.exports = router;
