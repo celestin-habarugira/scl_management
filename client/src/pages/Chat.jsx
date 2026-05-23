@@ -4,6 +4,8 @@ import ChatWindow from '../components/ChatWindow';
 import CreateGroupModal from '../components/CreateGroupModal';
 import CreateAnnouncementModal from '../components/CreateAnnouncementModal';
 import { SocketProvider } from '../context/SocketContext';
+import { CallProvider } from '../context/CallContext';
+import CallModal from '../components/CallModal';
 import { useAuth } from '../context/AuthContext';
 import { chatAPI } from '../services/api';
 
@@ -82,16 +84,19 @@ const Chat = () => {
 
   return (
     <SocketProvider>
-      <div className="flex h-[calc(100vh-8rem)] -mx-4 sm:-mx-6 lg:-mx-8 rounded-xl overflow-hidden shadow-lg border border-gray-200">
-        <ChatSidebar
-          activeRoom={activeRoom}
-          onSelectRoom={(room) => setActiveRoom(room)}
-          onNewDirect={() => setShowNewDirect(true)}
-          onCreateGroup={() => setShowNewGroup(true)}
-          onCreateAnnouncement={() => setShowNewAnnouncement(true)}
-        />
-        <ChatWindow room={activeRoom} />
-      </div>
+      <CallProvider>
+        <div className="flex h-[calc(100vh-8rem)] -mx-4 sm:-mx-6 lg:-mx-8 rounded-xl overflow-hidden shadow-lg border border-gray-200">
+          <ChatSidebar
+            activeRoom={activeRoom}
+            onSelectRoom={(room) => setActiveRoom(room)}
+            onNewDirect={() => setShowNewDirect(true)}
+            onCreateGroup={() => setShowNewGroup(true)}
+            onCreateAnnouncement={() => setShowNewAnnouncement(true)}
+          />
+          <ChatWindow room={activeRoom} />
+        </div>
+        <CallModal />
+      </CallProvider>
 
       {showNewDirect && (
         <NewDirectModal

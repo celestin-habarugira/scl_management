@@ -1,6 +1,9 @@
 const ChatRoom = require('../models/ChatRoom');
 const Message = require('../models/Message');
 const Employee = require('../models/Employee');
+const CallLog = require('../models/CallLog');
+const path = require('path');
+const fs = require('fs');
 
 const getOrCreateDirectRoom = async (req, res) => {
   try {
@@ -485,6 +488,34 @@ const searchMessages = async (req, res) => {
   }
 };
 
+const downloadFile = async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(__dirname, '..', 'uploads', filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+    res.download(filePath, filename);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+const getCallLogs = async (req, res) => {
+  try {
+    const logs = await CallLog.find({
+      $or: [{ caller: req.user._id }, { callee: req.user._id }],
+    })
+      .populate('caller', 'firstName lastName email role')
+      .populate('callee', 'firstName lastName email role')
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const getAvailableUsers = async (req, res) => {
   try {
     const users = await Employee.find({
@@ -512,4 +543,6 @@ module.exports = {
   editMessage,
   deleteMessage,
   searchMessages,
+  downloadFile,
+  getCallLogs,
 };

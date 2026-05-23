@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { chatAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket, useOnlineUsers } from '../context/SocketContext';
+import { useCall } from '../context/CallContext';
 import { API_URL } from '../config';
 import ImageLightbox from './ImageLightbox';
 import EmojiPicker from './EmojiPicker';
@@ -15,6 +16,7 @@ const ChatWindow = ({ room }) => {
   const { user } = useAuth();
   const socket = useSocket();
   const onlineUserIds = useOnlineUsers();
+  const call = useCall();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,6 +46,13 @@ const ChatWindow = ({ room }) => {
   const prevRoomId = useRef(null);
   const notifPermRef = useRef(false);
   const editInputRef = useRef(null);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [videoPlayingMsgId, setVideoPlayingMsgId] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
 
   const scrollToBottom = useCallback((smooth = true) => {
     setTimeout(() => {
@@ -237,6 +246,10 @@ const ChatWindow = ({ room }) => {
 
   const handleSend = async (e) => {
     e.preventDefault();
+    if (previewFile) {
+      handleUploadConfirm();
+      return;
+    }
     if (!text.trim() || sending) return;
     const content = text.trim();
     setSending(true);
@@ -338,25 +351,90 @@ const ChatWindow = ({ room }) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e); }
   };
 
-  const handleFileUpload = async (e) => {
+  const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPreviewFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleUploadConfirm = async () => {
+    if (!previewFile) return;
     setUploadProgress(0);
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', previewFile);
     formData.append('roomId', room._id);
     try {
       await chatAPI.uploadFile(formData, {
         onUploadProgress: (pe) => setUploadProgress(Math.round((pe.loaded * 100) / pe.total)),
       });
       scrollToBottom();
+      setPreviewFile(null);
     } catch (err) {
       setError('Failed to upload file');
       setTimeout(() => setError(null), 3000);
     } finally {
       setUploadProgress(null);
     }
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDownload = (fileUrl, fileName) => {
+    const a = document.createElement('a');
+    a.href = `${API_URL}${fileUrl}`;
+    a.download = fileName || 'download';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const getFileNameFromUrl = (fileUrl) => fileUrl?.split('/').pop() || '';
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+        setPreviewFile(file);
+        if (fileInputRef.current) {
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          fileInputRef.current.files = dt.files;
+        }
+        handleFileSelect({ target: { files: [file] } });
+      };
+      recorder.start(250);
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
+    } catch (err) {
+      setError('Microphone access denied');
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    setRecordingTime(0);
+  };
+
+  const formatDuration = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   const getInitials = (name) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -460,7 +538,7 @@ const ChatWindow = ({ room }) => {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {lightboxSrc && <ImageLightbox src={lightboxSrc} alt="" onClose={() => setLightboxSrc(null)} />}
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} alt="" onClose={() => setLightboxSrc(null)} onDownload={(url) => handleDownload(url, getFileNameFromUrl(url))} />}
 
       <div className="px-5 py-3 border-b border-gray-200 bg-white flex items-center gap-3 shadow-sm z-10">
         <div className="relative">
@@ -492,6 +570,28 @@ const ChatWindow = ({ room }) => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </button>
+          {room.type === 'direct' && call.callState === 'idle' && (
+            <>
+              <button
+                onClick={() => { const other = getOtherParticipant(); if (other) call.startCall(other, false); }}
+                className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
+                title="Audio call"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.128-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => { const other = getOtherParticipant(); if (other) call.startCall(other, true); }}
+                className="p-2 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-colors"
+                title="Video call"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </>
+          )}
           {(room.type === 'group' || room.type === 'announcement') && (
             <button
               onClick={() => setShowMembers(true)}
@@ -689,35 +789,80 @@ const ChatWindow = ({ room }) => {
                                   )}
 
                                   {msg.messageType === 'image' ? (
-                                    <div className="rounded-xl overflow-hidden shadow-sm border border-gray-200 bg-white cursor-pointer" onClick={() => setLightboxSrc(msg.fileUrl)}>
-                                      <img src={`${API_URL}${msg.fileUrl}`} alt={msg.content} className="max-w-full h-auto max-h-72 object-cover hover:opacity-95 transition-opacity" loading="lazy" />
-                                      {msg.content && <p className="text-xs text-gray-500 px-3 py-1.5 bg-white truncate">{msg.content}</p>}
+                                    <div className="relative group/image rounded-xl overflow-hidden shadow-sm border border-gray-200 bg-white">
+                                      <div className="cursor-pointer" onClick={() => setLightboxSrc(msg.fileUrl)}>
+                                        <img src={`${API_URL}${msg.fileUrl}`} alt={msg.content} className="max-w-full h-auto max-h-72 object-cover hover:opacity-95 transition-opacity" loading="lazy" />
+                                        {msg.content && <p className="text-xs text-gray-500 px-3 py-1.5 bg-white truncate">{msg.content}</p>}
+                                      </div>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handleDownload(msg.fileUrl, msg.fileName); }}
+                                        className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 opacity-0 group-hover/image:opacity-100 transition-opacity"
+                                        title="Download image"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  ) : msg.messageType === 'file' && msg.mimeType?.startsWith('video/') ? (
+                                    <div className="rounded-xl overflow-hidden shadow-sm border border-gray-200 bg-black relative group/video">
+                                      <video
+                                        src={`${API_URL}${msg.fileUrl}`}
+                                        controls
+                                        className="max-w-full h-auto max-h-72 w-full"
+                                        preload="metadata"
+                                      >
+                                        Your browser does not support the video tag.
+                                      </video>
+                                      {msg.content && <p className="text-xs text-gray-300 px-3 py-1.5 bg-black/80 truncate absolute bottom-0 left-0 right-0">{msg.content}</p>}
+                                      <button
+                                        onClick={() => handleDownload(msg.fileUrl, msg.fileName)}
+                                        className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 opacity-0 group-hover/video:opacity-100 transition-opacity"
+                                        title="Download video"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                        </svg>
+                                      </button>
                                     </div>
                                   ) : msg.messageType === 'file' && isAudio ? (
                                     <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-3 min-w-[220px]">
                                       <div className="flex items-center gap-3">
-                                        <button onClick={() => { const a = new Audio(`${API_URL}${msg.fileUrl}`); a.play(); }} className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center hover:bg-primary-200 transition-colors">
+                                        <button onClick={() => { const a = new Audio(`${API_URL}${msg.fileUrl}`); a.play(); }} className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center hover:bg-primary-200 transition-colors" title="Play audio">
                                           <svg className="w-5 h-5 text-primary-600" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                                         </button>
                                         <div className="flex-1 min-w-0">
                                           <p className="text-xs font-medium text-gray-700 truncate">{msg.fileName || 'Voice note'}</p>
                                           {msg.fileSize && <p className="text-[11px] text-gray-400">{(msg.fileSize / 1024).toFixed(0)} KB</p>}
                                         </div>
+                                        <button onClick={() => handleDownload(msg.fileUrl, msg.fileName)} className="p-2 text-gray-400 hover:text-primary-600 transition-colors" title="Download audio">
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                          </svg>
+                                        </button>
                                       </div>
                                     </div>
                                   ) : msg.messageType === 'file' ? (
-                                    <a href={`${API_URL}${msg.fileUrl}`} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-sm transition-colors ${
-                                      isOwn ? 'bg-primary-600 text-white hover:bg-primary-700' : 'bg-white text-gray-800 hover:bg-gray-50 border border-gray-200'
+                                    <div className={`flex items-center gap-2 rounded-xl shadow-sm transition-colors ${
+                                      isOwn ? 'bg-primary-600' : 'bg-white border border-gray-200'
                                     }`}>
-                                      <span className="text-xl flex-shrink-0">{getFileIcon(msg.mimeType)}</span>
-                                      <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium truncate">{msg.fileName || msg.content}</p>
-                                        {msg.fileSize && <p className={`text-xs ${isOwn ? 'text-primary-200' : 'text-gray-400'}`}>{(msg.fileSize / 1024).toFixed(1)} KB</p>}
-                                      </div>
-                                      <svg className="w-5 h-5 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                      </svg>
-                                    </a>
+                                      <a href={`${API_URL}${msg.fileUrl}`} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-3 px-4 py-3 min-w-0 flex-1 ${
+                                        isOwn ? 'text-white hover:bg-primary-700' : 'text-gray-800 hover:bg-gray-50'
+                                      }`}>
+                                        <span className="text-xl flex-shrink-0">{getFileIcon(msg.mimeType)}</span>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-sm font-medium truncate">{msg.fileName || msg.content}</p>
+                                          {msg.fileSize && <p className={`text-xs ${isOwn ? 'text-primary-200' : 'text-gray-400'}`}>{(msg.fileSize / 1024).toFixed(1)} KB</p>}
+                                        </div>
+                                      </a>
+                                      <button onClick={() => handleDownload(msg.fileUrl, msg.fileName)} className={`p-2 flex-shrink-0 transition-colors ${
+                                        isOwn ? 'text-white/70 hover:text-white' : 'text-gray-400 hover:text-primary-600'
+                                      }`} title="Download file">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                      </button>
+                                    </div>
                                   ) : (
                                     <div className={`px-4 py-2.5 rounded-2xl shadow-sm ${
                                       isOwn ? 'bg-primary-600 text-white rounded-br-md' : 'bg-white text-gray-800 rounded-bl-md border border-gray-100'
@@ -865,6 +1010,39 @@ const ChatWindow = ({ room }) => {
       )}
 
       <div className="px-5 py-3 border-t border-gray-200 bg-white">
+        {previewFile && (
+          <div className="mb-3 px-4 py-3 bg-gray-50 rounded-xl border border-gray-200 animate-slide-in-up">
+            <div className="flex items-center gap-3">
+              {previewFile.type.startsWith('image/') ? (
+                <img src={URL.createObjectURL(previewFile)} alt="Preview" className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-12 h-12 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xl">{previewFile.type.startsWith('video/') ? '🎬' : previewFile.type.startsWith('audio/') ? '🎵' : '📎'}</span>
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-700 truncate">{previewFile.name}</p>
+                <p className="text-xs text-gray-400">{(previewFile.size / 1024).toFixed(1)} KB</p>
+              </div>
+              <button
+                onClick={() => setPreviewFile(null)}
+                className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                title="Cancel"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <button
+                onClick={handleUploadConfirm}
+                disabled={uploadProgress !== null}
+                className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
+              >
+                {uploadProgress !== null ? `${uploadProgress}%` : 'Send'}
+              </button>
+            </div>
+          </div>
+        )}
         {replyTo && (
           <div className="mb-2 px-3 py-2 bg-primary-50 rounded-lg border border-primary-200 flex items-center gap-2 text-sm animate-slide-in-up">
             <div className="w-1 h-8 bg-primary-400 rounded-full flex-shrink-0" />
@@ -885,13 +1063,38 @@ const ChatWindow = ({ room }) => {
             onClick={() => fileInputRef.current?.click()}
             className="p-2.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-full transition-colors"
             title="Attach file"
-            disabled={uploadProgress !== null}
+            disabled={uploadProgress !== null || isRecording}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
             </svg>
           </button>
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.mp3,.wav,.ogg,.webm,.mp4" />
+          <button
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            className={`p-2.5 rounded-full transition-colors ${
+              isRecording
+                ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse'
+                : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+            }`}
+            title={isRecording ? 'Stop recording' : 'Record voice'}
+            disabled={uploadProgress !== null}
+          >
+            {isRecording ? (
+              <span className="flex items-center gap-1">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" />
+                  <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" />
+                </svg>
+                <span className="text-xs font-mono">{formatDuration(recordingTime)}</span>
+              </span>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            )}
+          </button>
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.mp3,.wav,.ogg,.webm,.mp4,video/*" />
           <div className="flex-1 relative">
             <textarea
               value={text}
@@ -922,12 +1125,18 @@ const ChatWindow = ({ room }) => {
           </div>
           <button
             type="submit"
-            disabled={!text.trim() || sending || uploadProgress !== null}
+            disabled={(!text.trim() && !previewFile) || sending || uploadProgress !== null}
             className="bg-primary-600 text-white p-2.5 rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
+            {previewFile ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            )}
           </button>
         </form>
       </div>

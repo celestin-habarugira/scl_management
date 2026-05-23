@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const Employee = require('../models/Employee');
 const Message = require('../models/Message');
 const ChatRoom = require('../models/ChatRoom');
+const CallLog = require('../models/CallLog');
 
 const onlineUsers = new Map();
 
@@ -46,6 +47,20 @@ function setupChatSocket(io) {
     rooms.forEach((room) => {
       socket.join(room._id.toString());
     });
+
+    (async () => {
+      const missed = await CallLog.find({ callee: user._id, status: 'missed' })
+        .populate('caller', 'firstName lastName email role')
+        .sort({ createdAt: -1 })
+        .limit(20);
+      if (missed.length > 0) {
+        socket.emit('missed_calls', missed);
+        await CallLog.updateMany(
+          { callee: user._id, status: 'missed' },
+          { $set: { status: 'missed' } }
+        );
+      }
+    })();
 
     socket.on('join_room', async (roomId) => {
       socket.join(roomId);
@@ -122,6 +137,122 @@ function setupChatSocket(io) {
         callback?.({ message: updatedMsg });
       } catch (err) {
         callback?.({ error: err.message });
+      }
+    });
+
+    socket.on('call_user', async ({ targetUserId, callType }) => {
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) {
+          targetSocket.emit('incoming_call', {
+            from: userId,
+            callerName: `${user.firstName} ${user.lastName}`,
+            callType,
+          });
+        }
+      } else {
+        await CallLog.create({
+          caller: user._id,
+          callee: targetUserId,
+          type: callType,
+          status: 'missed',
+        });
+        socket.emit('call_log_created', { message: 'User is offline — missed call logged' });
+      }
+    });
+
+    socket.on('accept_call', async ({ targetUserId }) => {
+      await CallLog.create({
+        caller: user._id,
+        callee: targetUserId,
+        type: 'audio',
+        status: 'answered',
+        startedAt: new Date(),
+      });
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('call_accepted', { from: userId });
+      }
+    });
+
+    socket.on('reject_call', async ({ targetUserId }) => {
+      const log = await CallLog.findOne({
+        caller: targetUserId,
+        callee: user._id,
+        status: 'missed',
+      }).sort({ createdAt: -1 });
+      if (log) {
+        log.status = 'rejected';
+        log.startedAt = new Date();
+        await log.save();
+      }
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('call_rejected', { from: userId });
+      }
+    });
+
+    socket.on('offer', ({ targetUserId, offer }) => {
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('offer', { from: userId, offer });
+      }
+    });
+
+    socket.on('answer', ({ targetUserId, answer }) => {
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('answer', { from: userId, answer });
+      }
+    });
+
+    socket.on('ice_candidate', ({ targetUserId, candidate }) => {
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('ice_candidate', { from: userId, candidate });
+      }
+    });
+
+    socket.on('end_call', async ({ targetUserId }) => {
+      const now = new Date();
+      const log = await CallLog.findOne({
+        $or: [
+          { caller: user._id, callee: targetUserId, status: 'answered' },
+          { caller: targetUserId, callee: user._id, status: 'answered' },
+        ],
+      }).sort({ createdAt: -1 });
+      if (log) {
+        log.status = 'answered';
+        log.endedAt = now;
+        if (log.startedAt) log.duration = Math.floor((now - log.startedAt) / 1000);
+        await log.save();
+      }
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('call_ended', { from: userId });
+      }
+    });
+
+    socket.on('toggle_mic', ({ targetUserId, muted }) => {
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('mic_toggled', { from: userId, muted });
+      }
+    });
+
+    socket.on('toggle_video', ({ targetUserId, videoOff }) => {
+      const target = onlineUsers.get(targetUserId);
+      if (target) {
+        const targetSocket = io.sockets.sockets.get(target.socketId);
+        if (targetSocket) targetSocket.emit('video_toggled', { from: userId, videoOff });
       }
     });
 

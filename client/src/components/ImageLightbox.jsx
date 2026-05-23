@@ -1,8 +1,7 @@
 import React, { useEffect } from 'react';
+import { API_URL } from '../config';
 
-const API_BASE = 'http://localhost:5000';
-
-const ImageLightbox = ({ src, alt, onClose }) => {
+const ImageLightbox = ({ src, alt, onClose, onDownload }) => {
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'Escape') onClose();
@@ -15,7 +14,7 @@ const ImageLightbox = ({ src, alt, onClose }) => {
     };
   }, [onClose]);
 
-  const fullSrc = src.startsWith('http') ? src : `${API_BASE}${src}`;
+  const fullSrc = src.startsWith('http') ? src : `${API_URL}${src}`;
 
   return (
     <div
@@ -37,6 +36,19 @@ const ImageLightbox = ({ src, alt, onClose }) => {
       >
         Close
       </button>
+
+      {onDownload && (
+        <button
+          onClick={() => onDownload(src)}
+          className="absolute bottom-4 right-4 text-white/70 hover:text-white z-10 bg-white/10 px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors hover:bg-white/20"
+          title="Download image"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Download
+        </button>
+      )}
 
       <div className="max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
         <img

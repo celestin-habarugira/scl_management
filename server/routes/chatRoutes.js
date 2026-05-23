@@ -16,6 +16,8 @@ const {
   editMessage,
   deleteMessage,
   searchMessages,
+  downloadFile,
+  getCallLogs,
 } = require('../controllers/chatController');
 
 router.use(protect);
@@ -34,5 +36,7 @@ router.post('/react/:messageId', reactToMessage);
 router.put('/edit/:messageId', editMessage);
 router.delete('/delete/:messageId', deleteMessage);
 router.get('/search/:roomId', searchMessages);
+router.get('/download/:filename', downloadFile);
+router.get('/call-logs', getCallLogs);
 
 module.exports = router;

@@ -61,6 +61,7 @@ export const chatAPI = {
   editMessage: (messageId, content) => api.put(`/chat/edit/${messageId}`, { content }),
   deleteMessage: (messageId) => api.delete(`/chat/delete/${messageId}`),
   searchMessages: (roomId, q) => api.get(`/chat/search/${roomId}`, { params: { q } }),
+  getCallLogs: () => api.get('/chat/call-logs'),
 };
 
 export default api;
