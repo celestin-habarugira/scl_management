@@ -1,6 +1,7 @@
 const ChatRoom = require('../models/ChatRoom');
 const Message = require('../models/Message');
 const Employee = require('../models/Employee');
+const Performance = require('../models/Performance');
 const CallLog = require('../models/CallLog');
 const path = require('path');
 const fs = require('fs');
@@ -30,7 +31,7 @@ const getOrCreateDirectRoom = async (req, res) => {
       });
     }
 
-    await room.populate('participants', 'firstName lastName email role');
+    await room.populate('participants', 'firstName lastName email role photo');
 
     res.json(room);
   } catch (error) {
@@ -54,7 +55,7 @@ const createGroupRoom = async (req, res) => {
       createdBy: req.user._id,
     });
 
-    await room.populate('participants', 'firstName lastName email role');
+    await room.populate('participants', 'firstName lastName email role photo');
 
     res.status(201).json(room);
   } catch (error) {
@@ -84,7 +85,7 @@ const createAnnouncementRoom = async (req, res) => {
       createdBy: req.user._id,
     });
 
-    await room.populate('participants', 'firstName lastName email role');
+    await room.populate('participants', 'firstName lastName email role photo');
 
     res.status(201).json(room);
   } catch (error) {
@@ -98,7 +99,7 @@ const getUserConversations = async (req, res) => {
       participants: req.user._id,
       isActive: true,
     })
-      .populate('participants', 'firstName lastName email role')
+      .populate('participants', 'firstName lastName email role photo')
       .populate('lastMessage')
       .sort({ updatedAt: -1 });
 
@@ -156,7 +157,7 @@ const getMessages = async (req, res) => {
     }
 
     const messages = await Message.find({ chatRoom: roomId })
-      .populate('sender', 'firstName lastName email role')
+      .populate('sender', 'firstName lastName email role photo')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -208,8 +209,8 @@ const sendMessage = async (req, res) => {
     await room.save();
 
     const populated = await message.populate([
-      { path: 'sender', select: 'firstName lastName email role' },
-      { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role' } },
+      { path: 'sender', select: 'firstName lastName email role photo' },
+      { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role photo' } },
     ]);
 
     const io = req.app.get('io');
@@ -237,8 +238,8 @@ const sendMessage = async (req, res) => {
         }
       }
       const updatedMsg = await Message.findById(message._id).populate([
-        { path: 'sender', select: 'firstName lastName email role' },
-        { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role' } },
+        { path: 'sender', select: 'firstName lastName email role photo' },
+        { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role photo' } },
       ]);
       io.to(roomId).emit('message_delivered', { messageId: updatedMsg._id, deliveredTo: updatedMsg.deliveredTo });
       res.status(201).json(updatedMsg);
@@ -286,7 +287,7 @@ const uploadFile = async (req, res) => {
     room.updatedAt = new Date();
     await room.save();
 
-    const populated = await message.populate('sender', 'firstName lastName email role');
+    const populated = await message.populate('sender', 'firstName lastName email role photo');
 
     const io = req.app.get('io');
     if (io) {
@@ -407,7 +408,7 @@ const editMessage = async (req, res) => {
     message.edited = true;
     await message.save();
 
-    const populated = await message.populate('sender', 'firstName lastName email role');
+    const populated = await message.populate('sender', 'firstName lastName email role photo');
     const io = req.app.get('io');
     if (io) {
       io.to(message.chatRoom.toString()).emit('message_edited', {
@@ -478,7 +479,7 @@ const searchMessages = async (req, res) => {
       messageType: { $in: ['text', 'announcement'] },
       isDeleted: false,
     })
-      .populate('sender', 'firstName lastName email role')
+      .populate('sender', 'firstName lastName email role photo')
       .sort({ createdAt: -1 })
       .limit(30);
 
@@ -506,8 +507,8 @@ const getCallLogs = async (req, res) => {
     const logs = await CallLog.find({
       $or: [{ caller: req.user._id }, { callee: req.user._id }],
     })
-      .populate('caller', 'firstName lastName email role')
-      .populate('callee', 'firstName lastName email role')
+      .populate('caller', 'firstName lastName email role photo')
+      .populate('callee', 'firstName lastName email role photo')
       .sort({ createdAt: -1 })
       .limit(50);
     res.json(logs);
@@ -521,9 +522,35 @@ const getAvailableUsers = async (req, res) => {
     const users = await Employee.find({
       _id: { $ne: req.user._id },
       isActive: true,
-    }).select('firstName lastName email role');
+    }).select('firstName lastName email role department phone photo');
 
-    res.json(users);
+    const userIds = users.map(u => u._id);
+    const perfStats = await Performance.aggregate([
+      { $match: { recordedBy: { $in: userIds } } },
+      { $group: {
+          _id: '$recordedBy',
+          recordCount: { $sum: 1 },
+          avgScore: { $avg: '$score' },
+          subjects: { $addToSet: '$subject' },
+      }},
+    ]);
+
+    const statsMap = {};
+    perfStats.forEach(s => { statsMap[s._id.toString()] = s; });
+
+    const result = users.map(u => {
+      const stats = statsMap[u._id.toString()] || {};
+      return {
+        ...u.toObject(),
+        performance: {
+          recordCount: stats.recordCount || 0,
+          avgScore: stats.avgScore ? Math.round(stats.avgScore * 10) / 10 : null,
+          subjects: stats.subjects || [],
+        },
+      };
+    });
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -33,11 +33,12 @@ function setupChatSocket(io) {
     onlineUsers.set(userId, {
       userId,
       name: `${user.firstName} ${user.lastName}`,
+      photo: user.photo,
       socketId: socket.id,
       onlineAt: new Date(),
     });
 
-    socket.broadcast.emit('user_online', { userId, name: `${user.firstName} ${user.lastName}` });
+    socket.broadcast.emit('user_online', { userId, name: `${user.firstName} ${user.lastName}`, photo: user.photo });
 
     const rooms = await ChatRoom.find({
       participants: user._id,
@@ -50,7 +51,7 @@ function setupChatSocket(io) {
 
     (async () => {
       const missed = await CallLog.find({ callee: user._id, status: 'missed' })
-        .populate('caller', 'firstName lastName email role')
+        .populate('caller', 'firstName lastName email role photo')
         .sort({ createdAt: -1 })
         .limit(20);
       if (missed.length > 0) {
@@ -74,6 +75,7 @@ function setupChatSocket(io) {
       socket.to(roomId).emit('user_typing', {
         userId,
         name: `${user.firstName} ${user.lastName}`,
+        photo: user.photo,
       });
     });
 
@@ -106,8 +108,8 @@ function setupChatSocket(io) {
         await room.save();
 
         const populated = await Message.populate(message, [
-          { path: 'sender', select: 'firstName lastName email role' },
-          { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role' } },
+          { path: 'sender', select: 'firstName lastName email role photo' },
+          { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role photo' } },
         ]);
 
         const participantIds = room.participants.map(p => p._id ? p._id.toString() : p.toString());
@@ -130,8 +132,8 @@ function setupChatSocket(io) {
           }
         }
         const updatedMsg = await Message.findById(message._id).populate([
-          { path: 'sender', select: 'firstName lastName email role' },
-          { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role' } },
+          { path: 'sender', select: 'firstName lastName email role photo' },
+          { path: 'replyTo', populate: { path: 'sender', select: 'firstName lastName email role photo' } },
         ]);
         io.to(roomId).emit('message_delivered', { messageId: updatedMsg._id, deliveredTo: updatedMsg.deliveredTo });
         callback?.({ message: updatedMsg });
@@ -148,6 +150,7 @@ function setupChatSocket(io) {
           targetSocket.emit('incoming_call', {
             from: userId,
             callerName: `${user.firstName} ${user.lastName}`,
+            callerPhoto: user.photo,
             callType,
           });
         }
@@ -254,6 +257,15 @@ function setupChatSocket(io) {
         const targetSocket = io.sockets.sockets.get(target.socketId);
         if (targetSocket) targetSocket.emit('video_toggled', { from: userId, videoOff });
       }
+    });
+
+    socket.on('photo_changed', ({ photo }) => {
+      const entry = onlineUsers.get(userId);
+      if (entry) {
+        entry.photo = photo;
+        onlineUsers.set(userId, entry);
+      }
+      socket.broadcast.emit('user_photo_updated', { userId, photo });
     });
 
     socket.on('disconnect', () => {

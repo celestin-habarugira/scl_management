@@ -200,9 +200,9 @@ export const CallProvider = ({ children }) => {
   useEffect(() => {
     if (!socket) return;
 
-    const handleIncomingCall = ({ from, callerName, callType: cType }) => {
+    const handleIncomingCall = ({ from, callerName, callerPhoto, callType: cType }) => {
       callPeerIdRef.current = from;
-      setCallPeer({ _id: from, firstName: callerName.split(' ')[0], lastName: callerName.split(' ').slice(1).join(' ') });
+      setCallPeer({ _id: from, firstName: callerName.split(' ')[0], lastName: callerName.split(' ').slice(1).join(' '), photo: callerPhoto });
       setCallType(cType);
       setCallState('ringing');
       playRingtone(true);

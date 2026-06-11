@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { chatAPI } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { chatAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 const CreateAnnouncementModal = ({ onClose, onCreated }) => {
   const { user } = useAuth();
@@ -148,14 +148,26 @@ const CreateAnnouncementModal = ({ onClose, onCreated }) => {
                         isSelected ? 'bg-amber-50' : 'hover:bg-gray-50'
                       }`}
                     >
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium text-white ${
-                        isSelected ? 'bg-amber-500' : 'bg-gray-400'
-                      }`}>
-                        {(u.firstName[0] + u.lastName[0]).toUpperCase()}
+                      <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
+                        {u.photo ? (
+                          <img src={`http://localhost:4000${u.photo}`} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className={`w-full h-full flex items-center justify-center text-xs font-medium text-white ${
+                            isSelected ? 'bg-amber-500' : 'bg-gray-400'
+                          }`}>
+                            {(u.firstName[0] + u.lastName[0]).toUpperCase()}
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{u.firstName} {u.lastName}</p>
-                        <p className="text-xs text-gray-500 capitalize">{u.role}</p>
+                        <p className="text-xs text-gray-500 capitalize truncate">{u.role}{u.department ? ` · ${u.department}` : ''}</p>
+                        {u.performance?.recordCount > 0 && (
+                          <p className="text-[11px] text-gray-400 truncate">
+                            {u.performance.recordCount} record{u.performance.recordCount !== 1 ? 's' : ''}
+                            {u.performance.avgScore !== null ? ` · Avg: ${u.performance.avgScore}%` : ''}
+                          </p>
+                        )}
                       </div>
                       <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
                         isSelected ? 'border-amber-500 bg-amber-500' : 'border-gray-300'

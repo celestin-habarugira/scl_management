@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { chatAPI } from '../services/api';
-import { useAuth } from '../context/AuthContext';
-import { useSocket, useOnlineUsers } from '../context/SocketContext';
+import { chatAPI, employeeAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { useSocket, useOnlineUsers } from '../../context/SocketContext';
+import { API_URL } from '../../config';
 
 const ChatSidebar = ({ activeRoom, onSelectRoom, onNewDirect, onCreateGroup, onCreateAnnouncement }) => {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const socket = useSocket();
   const onlineUserIds = useOnlineUsers();
   const [conversations, setConversations] = useState([]);
@@ -17,6 +18,8 @@ const ChatSidebar = ({ activeRoom, onSelectRoom, onNewDirect, onCreateGroup, onC
   const [searching, setSearching] = useState(false);
   const [missedCalls, setMissedCalls] = useState([]);
   const [showCallHistory, setShowCallHistory] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef(null);
 
   const fetchConversations = useCallback(async () => {
     if (!user) return;
@@ -93,12 +96,23 @@ const ChatSidebar = ({ activeRoom, onSelectRoom, onNewDirect, onCreateGroup, onC
       });
     };
 
+    const handlePhotoUpdated = ({ userId: changedUserId, photo }) => {
+      setConversations((prev) => prev.map((c) => ({
+        ...c,
+        participants: c.participants?.map((p) =>
+          p._id === changedUserId ? { ...p, photo } : p
+        ),
+      })));
+    };
+
     socket.on('conversation_updated', handleConvUpdated);
     socket.on('new_message', () => fetchConversations());
+    socket.on('user_photo_updated', handlePhotoUpdated);
 
     return () => {
       socket.off('conversation_updated', handleConvUpdated);
       socket.off('new_message');
+      socket.off('user_photo_updated', handlePhotoUpdated);
     };
   }, [socket, fetchConversations]);
 
@@ -173,6 +187,27 @@ const ChatSidebar = ({ activeRoom, onSelectRoom, onNewDirect, onCreateGroup, onC
       setMissedCalls(data.filter(l => l.status === 'missed' && l.callee._id === user._id));
     } catch {}
   }, [user]);
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('photo', file);
+      const { data } = await employeeAPI.uploadPhoto(formData);
+      updateUser({ photo: data.photo });
+      if (socket?.connected) {
+        socket.emit('photo_changed', { photo: data.photo });
+      }
+    } catch (err) {
+      console.error('Failed to upload photo');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const getPhotoUrl = (photo) => photo ? `${API_URL}${photo}` : null;
 
   const getLastMessagePreview = (conv) => {
     if (!conv.lastMessage) return 'No messages yet';
@@ -277,6 +312,48 @@ const ChatSidebar = ({ activeRoom, onSelectRoom, onNewDirect, onCreateGroup, onC
       </div>
       </div>
 
+      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex items-center gap-3">
+        <div className="relative flex-shrink-0">
+          <label className="cursor-pointer">
+            <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} className="hidden" accept="image/*" />
+            {user?.photo ? (
+              <img
+                src={getPhotoUrl(user.photo)}
+                alt="Profile"
+                className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => photoInputRef.current?.click()}
+              />
+            ) : (
+              <div
+                className="w-10 h-10 rounded-full bg-primary-500 flex items-center justify-center text-sm font-medium text-white cursor-pointer hover:bg-primary-600 transition-colors"
+                onClick={() => photoInputRef.current?.click()}
+              >
+                {getInitials(`${user?.firstName} ${user?.lastName}`)}
+              </div>
+            )}
+            {uploadingPhoto && (
+              <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-primary-500 border-2 border-white rounded-full flex items-center justify-center">
+                <svg className="w-3 h-3 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              </span>
+            )}
+          </label>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">{user?.firstName} {user?.lastName}</p>
+          <p className="text-xs text-gray-500 capitalize truncate">{user?.role}{user?.department ? ` · ${user?.department}` : ''}</p>
+        </div>
+        <button
+          onClick={() => photoInputRef.current?.click()}
+          className="text-xs text-primary-600 hover:text-primary-700 font-medium flex-shrink-0"
+          title="Change photo"
+        >
+          {user?.photo ? 'Change' : 'Add photo'}
+        </button>
+      </div>
+
       <div className="px-4 py-2 border-b border-gray-100">
         <div className="relative">
           <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,16 +406,27 @@ const ChatSidebar = ({ activeRoom, onSelectRoom, onNewDirect, onCreateGroup, onC
                       className="w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 transition-colors"
                     >
                       <div className="relative flex-shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-primary-500 flex items-center justify-center text-sm font-medium text-white">
-                          {getInitials(`${u.firstName} ${u.lastName}`)}
-                        </div>
+                        {u.photo ? (
+                          <img src={getPhotoUrl(u.photo)} alt="" className="w-10 h-10 rounded-full object-cover" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-primary-500 flex items-center justify-center text-sm font-medium text-white">
+                            {getInitials(`${u.firstName} ${u.lastName}`)}
+                          </div>
+                        )}
                         {isOnline && (
                           <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{u.firstName} {u.lastName}</p>
-                        <p className="text-xs text-gray-500 capitalize truncate">{u.role}{u.email ? ` · ${u.email}` : ''}</p>
+                        <p className="text-xs text-gray-500 capitalize truncate">{u.role}{u.department ? ` · ${u.department}` : ''}</p>
+                        {u.performance?.recordCount > 0 && (
+                          <p className="text-[11px] text-gray-400 truncate">
+                            {u.performance.recordCount} record{u.performance.recordCount !== 1 ? 's' : ''}
+                            {u.performance.avgScore !== null ? ` · Avg: ${u.performance.avgScore}%` : ''}
+                            {u.performance.subjects?.length > 0 ? ` · ${u.performance.subjects.slice(0, 2).join(', ')}${u.performance.subjects.length > 2 ? '...' : ''}` : ''}
+                          </p>
+                        )}
                       </div>
                     </button>
                   );
@@ -386,9 +474,13 @@ const ChatSidebar = ({ activeRoom, onSelectRoom, onNewDirect, onCreateGroup, onC
                         }`}
                       >
                         <div className="relative flex-shrink-0">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium text-white ${getAvatarColor(conv)}`}>
-                            {getAvatarLabel(conv)}
-                          </div>
+                          {conv.type === 'direct' && other?.photo ? (
+                            <img src={getPhotoUrl(other.photo)} alt="" className="w-10 h-10 rounded-full object-cover" />
+                          ) : (
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium text-white ${getAvatarColor(conv)}`}>
+                              {getAvatarLabel(conv)}
+                            </div>
+                          )}
                           {conv.type === 'direct' && otherOnline && (
                             <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
                           )}

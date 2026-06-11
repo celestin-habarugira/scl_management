@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { useOnlineUsers } from '../context/SocketContext';
+import { useOnlineUsers } from '../../context/SocketContext';
+import { API_URL } from '../../config';
 
 const MembersList = ({ participants = [], type, onClose }) => {
+  const getPhotoUrl = (photo) => photo ? `${API_URL}${photo}` : null;
   const onlineUserIds = useOnlineUsers();
   const [search, setSearch] = useState('');
 
@@ -47,9 +49,13 @@ const MembersList = ({ participants = [], type, onClose }) => {
               return (
                 <div key={p._id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50">
                   <div className="relative">
-                    <div className="w-9 h-9 rounded-full bg-primary-500 flex items-center justify-center text-xs font-bold text-white">
-                      {initials || '?'}
-                    </div>
+                    {p.photo ? (
+                      <img src={getPhotoUrl(p.photo)} alt="" className="w-9 h-9 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-primary-500 flex items-center justify-center text-xs font-bold text-white">
+                        {initials || '?'}
+                      </div>
+                    )}
                     {isOnline && (
                       <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
                     )}

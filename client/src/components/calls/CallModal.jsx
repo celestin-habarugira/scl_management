@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
-import { useCall } from '../context/CallContext';
+import { useCall } from '../../context/CallContext';
+import { API_URL } from '../../config';
 
 const formatDuration = (sec) => {
   const m = Math.floor(sec / 60);
@@ -32,6 +33,7 @@ const CallModal = () => {
   if (callState === 'idle') return null;
 
   const peerName = callPeer ? `${callPeer.firstName} ${callPeer.lastName}` : 'Unknown';
+  const peerPhoto = callPeer?.photo;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -43,9 +45,13 @@ const CallModal = () => {
       <div className="bg-gray-900 rounded-2xl shadow-2xl overflow-hidden w-full max-w-lg mx-4">
         {callState === 'ringing' && (
           <div className="p-8 text-center">
-            <div className="w-20 h-20 rounded-full bg-primary-600 flex items-center justify-center text-2xl font-bold text-white mx-auto mb-4 animate-bounce">
-              {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-            </div>
+            {peerPhoto ? (
+              <img src={`${API_URL}${peerPhoto}`} alt="" className="w-20 h-20 rounded-full object-cover mx-auto mb-4 animate-bounce" />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-primary-600 flex items-center justify-center text-2xl font-bold text-white mx-auto mb-4 animate-bounce">
+                {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+              </div>
+            )}
             <h3 className="text-xl font-semibold text-white mb-1">{peerName}</h3>
             <p className="text-gray-400 mb-8">{callType === 'video' ? '📹 Video call' : '📞 Audio call'}</p>
             <p className="text-green-400 text-sm mb-6 animate-pulse">Incoming call...</p>
@@ -66,9 +72,13 @@ const CallModal = () => {
 
         {callState === 'calling' && (
           <div className="p-8 text-center">
-            <div className="w-20 h-20 rounded-full bg-gray-700 flex items-center justify-center text-2xl font-bold text-white mx-auto mb-4">
-              {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-            </div>
+            {peerPhoto ? (
+              <img src={`${API_URL}${peerPhoto}`} alt="" className="w-20 h-20 rounded-full object-cover mx-auto mb-4" />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-gray-700 flex items-center justify-center text-2xl font-bold text-white mx-auto mb-4">
+                {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+              </div>
+            )}
             <h3 className="text-xl font-semibold text-white mb-1">{peerName}</h3>
             <p className="text-gray-400 mb-2">{callType === 'video' ? '📹 Video call' : '📞 Audio call'}</p>
             <p className="text-yellow-400 text-sm animate-pulse">Calling...</p>
@@ -91,9 +101,13 @@ const CallModal = () => {
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="w-24 h-24 rounded-full bg-gray-700 flex items-center justify-center text-3xl font-bold text-white mx-auto mb-3">
-                        {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </div>
+                      {peerPhoto ? (
+                        <img src={`${API_URL}${peerPhoto}`} alt="" className="w-24 h-24 rounded-full object-cover mx-auto mb-3" />
+                      ) : (
+                        <div className="w-24 h-24 rounded-full bg-gray-700 flex items-center justify-center text-3xl font-bold text-white mx-auto mb-3">
+                          {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                        </div>
+                      )}
                       <p className="text-gray-400 text-sm">Connecting...</p>
                     </div>
                   </div>
@@ -110,9 +124,13 @@ const CallModal = () => {
               </div>
             ) : (
               <div className="p-8 text-center">
-                <div className="w-24 h-24 rounded-full bg-gray-700 flex items-center justify-center text-3xl font-bold text-white mx-auto mb-4">
-                  {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                </div>
+                {peerPhoto ? (
+                  <img src={`${API_URL}${peerPhoto}`} alt="" className="w-24 h-24 rounded-full object-cover mx-auto mb-4" />
+                ) : (
+                  <div className="w-24 h-24 rounded-full bg-gray-700 flex items-center justify-center text-3xl font-bold text-white mx-auto mb-4">
+                    {peerName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                  </div>
+                )}
                 <h3 className="text-xl font-semibold text-white mb-1">{peerName}</h3>
                 <p className="text-green-400 text-sm mb-2">{formatDuration(callDuration)}</p>
                 <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gray-800 flex items-center justify-center">

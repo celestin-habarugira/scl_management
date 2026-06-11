@@ -9,7 +9,7 @@ import Attendance from './pages/Attendance';
 import Performance from './pages/Performance';
 import Employees from './pages/Employees';
 import Chat from './pages/Chat';
-import Navbar from './components/Navbar';
+import Navbar from './components/layout/Navbar';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();

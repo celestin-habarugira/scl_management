@@ -22,6 +22,7 @@ export const employeeAPI = {
   getById: (id) => api.get(`/employees/${id}`),
   update: (id, data) => api.put(`/employees/${id}`, data),
   remove: (id) => api.delete(`/employees/${id}`),
+  uploadPhoto: (formData, config) => api.post('/employees/upload-photo', formData, config),
 };
 
 export const studentAPI = {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../config';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -43,6 +44,13 @@ const Navbar = () => {
             ))}
           </div>
           <div className="hidden md:flex items-center space-x-4">
+            {user?.photo ? (
+              <img src={`${API_URL}${user.photo}`} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-white/50" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-xs font-bold text-white border-2 border-white/50">
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </div>
+            )}
             <span className="text-sm">Welcome, {user?.firstName}</span>
             <button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-md text-sm font-medium transition-colors">
               Logout

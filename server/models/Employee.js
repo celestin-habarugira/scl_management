@@ -11,6 +11,7 @@ const employeeSchema = new mongoose.Schema({
   phone: { type: String },
   hireDate: { type: Date, default: Date.now },
   isActive: { type: Boolean, default: true },
+  photo: { type: String, default: null },
 }, { timestamps: true });
 
 employeeSchema.pre('save', async function(next) {

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { chatAPI } from '../services/api';
+import { chatAPI } from '../../services/api';
 
 const MessageSearch = ({ roomId, onSelectMessage, onClose }) => {
   const [query, setQuery] = useState('');
